@@ -63,29 +63,21 @@ functions {
   */
   real normal_prec_chol_lpdf(
     vector y, vector x, 
-    array[] int n_values, array[] int index, vector values, 
-    real log_det, array[] int perm
+    array[] int row_ptr, array[] int index, 
+    vector values, real log_det, array[] int perm
   ) {
     int N = num_elements(x);
     vector[N] q = rep_vector(0, N);
     // Permute the difference between observed and expected values
     vector[N] diff = y[perm] - x[perm];
     
-    // Calculate the cholesky factor of the quadratic form (y-x)'Q(y-x), i.e. (y-x)'L
-    int pos = 1;
-    for (i in 1:N) {
-      for (j in 1:n_values[i]) {
-        // Accumulate contributions for each row using sparse representation
-        q[i] += values[pos] * diff[index[pos]];
-        pos += 1;
-      }
-    }
+    q = L_times(N, values, index, row_ptr, diff);
 
     // Log density = log|Q|/2 - (1/2)(y-x)'Q(y-x) = log|L| - q'q/2
     return log_det - dot_self(q) / 2;
   }
 }
- 
+
 data {
   // Basic dimensions
   int<lower = 1> n_stations;  // Number of spatial locations/regions
@@ -107,7 +99,10 @@ data {
   array[n_param * n_stations] int n_values;  // Number of non-zero elements per row
   array[n_nonzero_chol_Q] int index;  // Column indices of non-zero elements
   vector[n_nonzero_chol_Q] value;  // Values of non-zero elements
+  array[n_param * n_stations + 1] int row_ptr;  // Row pointers for CSR format
   real<lower = 0> log_det_Q;  // Log determinant of precision matrix
+
+
 }
 
 transformed data {
@@ -151,7 +146,7 @@ model {
 
   // Likelihood using sparse precision matrix
   target += normal_prec_chol_lpdf(
-    eta_hat | eta, n_values, index, value, log_det_Q, perm
+    eta_hat | eta, row_ptr, index, value, log_det_Q, perm
   );
 }
 

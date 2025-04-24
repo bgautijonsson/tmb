@@ -27,8 +27,8 @@ tictoc::tic()
 data <- prepare_precip_data(
   stations = bggjphd::stations,
   precip = bggjphd::precip,
-  # x_range = c(0, 60),
-  # y_range = c(46, 106)
+  # x_range = c(0, 20),
+  # y_range = c(46, 66)
 )
 P <- ncol(data$Y)
 
@@ -158,8 +158,10 @@ par_copula <- obj_copula$env$last.par.best
 par_copula[which.min(par_copula)]
 par_copula[which.max(par_copula)]
 Q_sparse <- obj_copula$env$spHess(par_copula)
-L <- Cholesky(Q_sparse, LDL = FALSE)
+L <- Cholesky(Q_sparse, LDL = FALSE, perm = TRUE)
 tictoc::toc()
+
+
 
 max_step_results <- list(
   parameters_copula = par_copula,
@@ -175,7 +177,7 @@ edges <- data$edges
 n_stations <- nrow(data$stations)
 n_param <- 3
 eta_hat <- max_step_results$parameters_copula
-L <- max_step_results$L
+# L <- max_step_results$L
 
 
 # Process edges
@@ -190,12 +192,31 @@ dim2 <- length(unique(stations$proj_y))
 
 
 # Process Cholesky components
-value <- L@x
-index <- L@i + 1
-n_values <- L@nz
-log_det_Q <- sum(log(Matrix::diag(L)))
-perm <- L@perm + 1
+# value <- L@x
+# index <- L@i + 1
+# n_values <- L@nz
+# log_det_Q <- sum(log(Matrix::diag(L)))
+# perm <- L@perm + 1
 
+## 2.  Extract the permutation -------------------------------------------------
+perm <- as.integer(L@perm) + 1               # CHOLMOD stores 0-based
+# pass this straight to Stan
+
+## 3.  Turn the factor into a *row-compressed* sparse matrix -------------------
+L_C  <- as(L, "sparseMatrix")                 # dgCMatrix (CSC)
+L_R  <- as(L_C, "RsparseMatrix")                # dgRMatrix (CSR)  :contentReference[oaicite:0]{index=0}
+
+## 4.  Build the CSR arrays that Stan wants ------------------------------------
+row_ptr  <- L_R@p + 1                           # cumulative count per row (0-based)
+n_values <- diff(row_ptr)                       # number of non-zeros per row      :contentReference[oaicite:1]{index=1}
+index    <- as.integer(L_R@j) + 1               # 1-based column indices for Stan
+value    <- as.numeric(L_R@x)                   # numeric data
+log_det_Q <- sum(log(Matrix::diag(L)))
+L_C[1:5, 1:5]
+value[1:10]
+index[1:10]
+row_ptr[1:10] + 1
+stopifnot(sum(n_values) == length(value))       # quick consistency check
 # Calculate scaling factor for BYM2 model
 scaling_factor <- get_scaling_factor(edges, n_stations)
 
@@ -214,6 +235,7 @@ stan_data <- list(
   n_values = n_values,
   index = index,
   value = value,
+  row_ptr = row_ptr,
   log_det_Q = log_det_Q,
   dim1 = dim1,
   dim2 = dim2,
@@ -277,9 +299,8 @@ res <- list(
   smooth_results = fit
 )
 
-res$smooth_results$draws()
-
-write_rds(res, "results.rds")
+# res$smooth_results$draws()
+# write_rds(res, "results.rds")
 
 fit <- res$smooth_results
 
@@ -335,7 +356,7 @@ plot_dat <- post_sum |>
     )
   )
 
-plot_dat |> 
+plot_dat |>
   write_csv("plot_dat.csv")
 
 plot_dat |>
@@ -440,299 +461,5 @@ make_plot <- function(var) {
   )
 }
 
-c("psi", "mu", "tau", "sigma", "phi", "xi") |> 
+c("psi", "mu", "tau", "sigma", "phi", "xi") |>
   map(make_plot)
-
-d |>
-  filter(
-    variable == "psi",
-    # type == "Copula (Max)"
-  ) |>
-  rename(
-    model = type
-  ) |> 
-  mutate(
-    model2 = model
-  ) |> 
-  group_by(model2) |> 
-  group_map(
-    \(x, ...) {
-      x |> 
-        ggplot() +
-        geom_sf(
-          data = uk |> filter(name == "Ireland")
-        ) +
-        geom_sf(
-          aes(fill = value, col = value),
-          linewidth = 0.01,
-          alpha = 0.6
-        ) +
-        scale_fill_viridis_c() +
-        scale_colour_viridis_c() +
-        labs(
-          subtitle = unique(x$model)
-        )
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Spatial distribution",
-    subtitle = "psi"
-  )
-
-d |>
-  filter(
-    variable == "mu",
-    # type == "Copula (Max)"
-  ) |>
-  rename(
-    model = type
-  ) |> 
-  mutate(
-    model2 = model
-  ) |> 
-  group_by(model2) |> 
-  group_map(
-    \(x, ...) {
-      x |> 
-        ggplot() +
-        geom_sf(
-          data = uk |> filter(name == "Ireland")
-        ) +
-        geom_sf(
-          aes(fill = value, col = value),
-          linewidth = 0.01,
-          alpha = 0.6
-        ) +
-        scale_fill_viridis_c() +
-        scale_colour_viridis_c() +
-        labs(
-          subtitle = unique(x$model)
-        )
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Spatial distribution",
-    subtitle = "mu"
-  )
-
-d |>
-  filter(
-    variable == "tau",
-    # type == "Copula (Max)"
-  ) |>
-  rename(
-    model = type
-  ) |> 
-  mutate(
-    model2 = model
-  ) |> 
-  group_by(model2) |> 
-  group_map(
-    \(x, ...) {
-      x |> 
-        ggplot() +
-        geom_sf(
-          data = uk |> filter(name == "Ireland")
-        ) +
-        geom_sf(
-          aes(fill = value, col = value),
-          linewidth = 0.01,
-          alpha = 0.6
-        ) +
-        scale_fill_viridis_c() +
-        scale_colour_viridis_c() +
-        labs(
-          subtitle = unique(x$model)
-        )
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Spatial distribution",
-    subtitle = "tau"
-  )
-
-d |>
-  filter(
-    variable == "sigma",
-    # type == "Copula (Max)"
-  ) |>
-  rename(
-    model = type
-  ) |> 
-  mutate(
-    model2 = model
-  ) |> 
-  group_by(model2) |> 
-  group_map(
-    \(x, ...) {
-      x |> 
-        ggplot() +
-        geom_sf(
-          data = uk |> filter(name == "Ireland")
-        ) +
-        geom_sf(
-          aes(fill = value, col = value),
-          linewidth = 0.01,
-          alpha = 0.6
-        ) +
-        scale_fill_viridis_c() +
-        scale_colour_viridis_c() +
-        labs(
-          subtitle = unique(x$model)
-        )
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Spatial distribution",
-    subtitle = "sigma"
-  )
-
-
-d |>
-  filter(
-    variable == "phi",
-    # type == "Copula (Max)"
-  ) |>
-  rename(
-    model = type
-  ) |> 
-  mutate(
-    model2 = model
-  ) |> 
-  group_by(model2) |> 
-  group_map(
-    \(x, ...) {
-      x |> 
-        ggplot() +
-        geom_sf(
-          data = uk |> filter(name == "Ireland")
-        ) +
-        geom_sf(
-          aes(fill = value, col = value),
-          linewidth = 0.01,
-          alpha = 0.6
-        ) +
-        scale_fill_viridis_c() +
-        scale_colour_viridis_c() +
-        labs(
-          subtitle = unique(x$model)
-        )
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Spatial distribution",
-    subtitle = "phi"
-  )
-
-
-d |>
-  filter(
-    variable == "xi",
-    # type == "Copula (Max)"
-  ) |>
-  rename(
-    model = type
-  ) |> 
-  mutate(
-    model2 = model
-  ) |> 
-  group_by(model2) |> 
-  group_map(
-    \(x, ...) {
-      x |> 
-        ggplot() +
-        geom_sf(
-          data = uk |> filter(name == "Ireland")
-        ) +
-        geom_sf(
-          aes(fill = value, col = value),
-          linewidth = 0.01,
-          alpha = 0.6
-        ) +
-        scale_fill_viridis_c() +
-        scale_colour_viridis_c() +
-        labs(
-          subtitle = unique(x$model)
-        )
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Spatial distribution",
-    subtitle = "xi"
-  )
-
-
-plot_dat |> 
-  filter(
-    type != "IID (Max)"
-  ) |> 
-  pivot_wider(names_from = type) |> 
-  janitor::clean_names() |> 
-  mutate(
-    variable2 = variable
-  ) |> 
-  group_by(variable2) |> 
-  group_map(
-    \(x, ...) {
-      
-      lower <- min(c(x$copula_max, x$smooth_mcmc))
-      upper <- max(c(x$copula_max, x$smooth_mcmc))
-      
-      x |> 
-        ggplot(aes(copula_max, smooth_mcmc)) +
-        geom_abline(
-          intercept = 0,
-          slope = 1,
-          lty = 2 
-        ) +
-        geom_point(
-          alpha = 0.1
-        ) +
-        scale_x_continuous(
-          guide = ggh4x::guide_axis_truncated(),
-          breaks = scales::breaks_extended(7)
-        ) +
-        scale_y_continuous(
-          guide = ggh4x::guide_axis_truncated(),
-          breaks = scales::breaks_extended(7)
-        ) +
-        coord_cartesian(
-          xlim = c(lower, upper),
-          ylim = c(lower, upper)
-        ) + 
-        labs(
-          subtitle = latex2exp::TeX(
-            str_c(
-              "$",
-              unique(x$variable),
-              "$"
-            )
-          ),
-          x = "Max-Step",
-          y = "Smooth-Step"
-        )
-      
-    }
-  ) |> 
-  wrap_plots() +
-  plot_annotation(
-    title = "Comparing station-wise estimates from the Max and Smooth-steps",
-    subtitle = str_c(
-      "Location, scale and shape on the unconstrained (upper row) and constrained (lower row) scale"
-    )
-  )
-
-ggsave(
-  filename = "max_smooth_compare.png",
-  width = 8,
-  height = 0.621 * 8,
-  scale = 1.3
-)
-
-

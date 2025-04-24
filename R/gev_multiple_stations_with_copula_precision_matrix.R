@@ -282,12 +282,19 @@ model <- cmdstanr::cmdstan_model(
   here::here("stan", "stan_smooth_bym2.stan")
 )
 
+# 1.  Run a quick ADVI pass
+# pf <- model$pathfinder(
+#   data = stan_data, 
+#   psis_resample = FALSE, 
+#   init = rep(list(inits), 4)
+# )        
+
 fit <- model$sample(
   data = stan_data,
   chains = 4,
   parallel_chains = 4,
   refresh = 100,
-  iter_warmup = 1000,
+  iter_warmup = 200,
   iter_sampling = 1000,
   init = rep(list(inits), 4)
 )
@@ -356,13 +363,22 @@ plot_dat <- post_sum |>
     )
   )
 
-plot_dat |>
-  write_csv("plot_dat.csv")
+# plot_dat |>
+#   write_csv("plot_dat.csv")
+
+plot_dat <- read_csv("plot_dat.csv")
 
 plot_dat |>
   filter(
     # str_detect(type, "Max")
   ) |>
+  mutate(
+    variable = fct_relevel(
+      variable,
+      "psi", "tau", "phi",
+      "mu", "sigma", "xi"
+      )
+  ) |> 
   ggplot(aes(value, after_stat(scaled))) +
   geom_density(
     data = ~ rename(.x, tp = type),
@@ -380,16 +396,18 @@ plot_dat |>
   scale_fill_brewer(
     palette = "Set1"
   ) +
-  facet_wrap(
-    vars(variable, type),
+  facet_grid(
+    rows = vars(type),
+    cols = vars(variable),
     scales = "free",
-    ncol = 3
+    labeller = label_parsed
   ) +
   theme(
     legend.position = "none",
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
-    axis.line.y = element_blank()
+    axis.line.y = element_blank(),
+    plot.margin = margin(10, 10, 10, 10)
   ) +
   labs(
     x = NULL,
@@ -398,10 +416,10 @@ plot_dat |>
   )
 
 ggsave(
-  filename = "comparison.png",
+  filename = "Figures/comparison.png",
   width = 8,
-  height = 1.2 * 8,
-  scale = 1.2
+  height = 0.4 * 8,
+  scale = 1.5
 )
 
 uk <- bggjphd::get_uk_spatial(scale = "large")
@@ -448,13 +466,17 @@ make_plot <- function(var) {
     ) |> 
     wrap_plots() +
     plot_annotation(
-      title = "Spatial distribution",
-      subtitle = var
+      title = "Spatial distribution of GEV parameters",
+      subtitle = latex2exp::TeX(
+        str_c(
+          "$", var, "$"
+        )
+      )
     )
   
   ggsave(
     plot = p,
-    filename = str_c(var, ".png"),
+    filename = str_c("Figures/", var, ".png"),
     width = 8,
     height = 0.4 * 8,
     scale = 1.8
@@ -463,3 +485,71 @@ make_plot <- function(var) {
 
 c("psi", "mu", "tau", "sigma", "phi", "xi") |>
   map(make_plot)
+
+
+plot_dat |> 
+  filter(
+    type != "IID (Max)"
+  ) |> 
+  pivot_wider(names_from = type) |> 
+  janitor::clean_names() |> 
+  mutate(
+    variable2 = variable
+  ) |> 
+  group_by(variable2) |> 
+  group_map(
+    \(x, ...) {
+      
+      lower <- min(c(x$copula_max, x$smooth_mcmc))
+      upper <- max(c(x$copula_max, x$smooth_mcmc))
+      
+      x |> 
+        ggplot(aes(copula_max, smooth_mcmc)) +
+        geom_abline(
+          intercept = 0,
+          slope = 1,
+          lty = 2 
+        ) +
+        geom_point(
+          alpha = 0.1
+        ) +
+        scale_x_continuous(
+          guide = ggh4x::guide_axis_truncated(),
+          breaks = scales::breaks_extended(7)
+        ) +
+        scale_y_continuous(
+          guide = ggh4x::guide_axis_truncated(),
+          breaks = scales::breaks_extended(7)
+        ) +
+        coord_cartesian(
+          xlim = c(lower, upper),
+          ylim = c(lower, upper)
+        ) + 
+        labs(
+          subtitle = latex2exp::TeX(
+            str_c(
+              "$",
+              unique(x$variable),
+              "$"
+            )
+          ),
+          x = "Max-Step",
+          y = "Smooth-Step"
+        )
+      
+    }
+  ) |> 
+  wrap_plots() +
+  plot_annotation(
+    title = "Comparing station-wise estimates from the Max and Smooth-steps",
+    subtitle = str_c(
+      "Location, scale and shape on the unconstrained (upper row) and constrained (lower row) scale"
+    )
+  )
+
+ggsave(
+  filename = "Figures/max_smooth_compare.png",
+  width = 8,
+  height = 0.621 * 8,
+  scale = 1.3
+)

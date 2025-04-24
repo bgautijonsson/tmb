@@ -86,19 +86,19 @@ data {
 
   // Parameter estimates from previous model fitting
   vector[n_stations * n_param] eta_hat;  // Parameter estimates stacked by parameter type
-  array[n_stations * n_param] int<lower=1> perm;  // Permutation indices for Cholesky decomposition
-
+  
   // Spatial adjacency information
   int<lower = 1> n_edges;  // Number of edges in adjacency graph
   array[n_edges] int<lower = 1, upper = n_stations> node1;  // Origin nodes
   array[n_edges] int<lower = 1, upper = n_stations> node2;  // Destination nodes
   real<lower = 0> scaling_factor;  // Scaling factor for BYM2 spatial component
-
+  
   // Sparse Cholesky factor information for precision matrix
   int<lower = 1> n_nonzero_chol_Q;  // Number of non-zero elements in Cholesky factor
   array[n_param * n_stations] int n_values;  // Number of non-zero elements per row
   array[n_nonzero_chol_Q] int index;  // Column indices of non-zero elements
   vector[n_nonzero_chol_Q] value;  // Values of non-zero elements
+  array[n_stations * n_param] int<lower=1> perm;  // Permutation indices for Cholesky decomposition
   array[n_param * n_stations + 1] int row_ptr;  // Row pointers for CSR format
   real<lower = 0> log_det_Q;  // Log determinant of precision matrix
 
@@ -109,7 +109,7 @@ transformed data {
   // Extract parameter estimates by type for easier handling
   vector[n_stations] psi_hat = eta_hat[1:n_stations];  // Location parameter estimates
   vector[n_stations] tau_hat = eta_hat[(n_stations + 1):(2 * n_stations)];  // Scale parameter estimates
-  vector[n_stations] phi_hat = eta_hat[(2 * n_stations + 1):(3 * n_stations)];  // Shape parameter estimates
+  vector[n_stations] phi_hat = eta_hat[(2 * n_stations + 1):(3 * n_stations)];  // Shape parameter estimates  
 }
 
 parameters {

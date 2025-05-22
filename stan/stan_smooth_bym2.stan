@@ -71,6 +71,7 @@ functions {
     // Permute the difference between observed and expected values
     vector[N] diff = y[perm] - x[perm];
     
+    // q = L'(y - x)
     q = L_times(N, values, index, row_ptr, diff);
 
     // Log density = log|Q|/2 - (1/2)(y-x)'Q(y-x) = log|L| - q'q/2
@@ -101,15 +102,6 @@ data {
   array[n_stations * n_param] int<lower=1> perm;  // Permutation indices for Cholesky decomposition
   array[n_param * n_stations + 1] int row_ptr;  // Row pointers for CSR format
   real<lower = 0> log_det_Q;  // Log determinant of precision matrix
-
-
-}
-
-transformed data {
-  // Extract parameter estimates by type for easier handling
-  vector[n_stations] psi_hat = eta_hat[1:n_stations];  // Location parameter estimates
-  vector[n_stations] tau_hat = eta_hat[(n_stations + 1):(2 * n_stations)];  // Scale parameter estimates
-  vector[n_stations] phi_hat = eta_hat[(2 * n_stations + 1):(3 * n_stations)];  // Shape parameter estimates  
 }
 
 parameters {

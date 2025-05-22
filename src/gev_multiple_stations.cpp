@@ -98,37 +98,33 @@ Type sigma_link(Type psi, Type tau) {
 
 // Link function for shape parameter (xi)
 template<class Type>
-Type xi_link(Type phi) {
-    Type c_phi = 0.8;
-    Type b_phi = 0.39563;
-    Type a_phi = 0.062376;
-    
-    Type xi_temp = (phi - a_phi) / b_phi;
-    xi_temp = 1.0 - exp(-exp(xi_temp));
-    return pow(xi_temp, 1.0/c_phi) - 0.5;
+Type xi_link(Type phi, Type a_phi, Type b_phi, Type c_phi) {
+    // Calculate xi = (1 - exp(-exp((phi - a_phi) / b_phi))) ^ (1/c_phi) - 0.5
+    Type z = (phi - a_phi) / b_phi;
+    Type u = Type(1.0) - exp(-exp(z));
+    Type xi = pow(u, Type(1.0) / c_phi) - Type(0.5);
+
+    return xi;
 }
 
-// GEV log-probability density function
+// Templated version of GEV log-density
 template<class Type>
-Type gev_lpdf(Type y, Type mu, Type sigma, Type xi) {
-    // Calculate standardized value
-    Type z = (y - mu) / sigma;
-    Type t = 1.0 + xi * z;
-    
-    // Check domain
-    if(t <= 0) {
-        return -INFINITY;  // Return negative infinity for invalid values
-    }
-    
-    // Handle Gumbel case separately for better numerical stability
-    if(fabs(xi) < 1e-6) {
-        // Gumbel case
+Type gev_lpdf(Type x, Type mu, Type sigma, Type xi) {
+    const Type tol = Type(1e-8);
+    Type z = (x - mu) / sigma;
+
+    if (CppAD::abs(xi) < tol) {
         return -log(sigma) - z - exp(-z);
     } else {
-        // General GEV
-        return -log(sigma) - (1.0 + 1.0/xi) * log(t) - pow(t, -1.0/xi);
+        Type t = Type(1.0) + xi * z;
+        if (t <= Type(0.0)) {
+            return -INFINITY;
+        }
+        Type inv_xi = Type(1.0) / xi;
+        return -log(sigma) - (inv_xi + Type(1.0)) * log(t) - exp(-inv_xi * log(t));
     }
 }
+
 
 // GEV pdf for multiple stations
 template<class Type>
@@ -137,6 +133,7 @@ Type objective_function<Type>::operator() ()
     DATA_MATRIX(y);          // Observed data
     DATA_VECTOR(prior_mu);   // Mean of priors for GEV parameters
     DATA_VECTOR(prior_sigma); // SD of priors for GEV parameters
+    
     PARAMETER_VECTOR(psi);   // location parameters 
     PARAMETER_VECTOR(tau);   // log-scale parameters
     PARAMETER_VECTOR(phi);   // shape parameters
@@ -146,16 +143,22 @@ Type objective_function<Type>::operator() ()
 
     Type nll = 0.0;
     
+    // Calculate constants for xi_link function once
+    const Type c_phi = Type(0.8);
+    Type inside_term = Type(1.0) - pow(Type(0.5), c_phi);
+    Type b_phi = -pow(c_phi, -1) * log(inside_term) * inside_term * pow(Type(2), c_phi - Type(1.0));
+    Type a_phi = -b_phi * log(-log(inside_term));
+    
     // Loop over stations
     for(int p = 0; p < P; p++) {
         // Apply link functions
         Type mu = mu_link(psi(p));
         Type sigma = sigma_link(psi(p), tau(p));
-        Type xi = xi_link(phi(p));
+        Type xi = xi_link(phi(p), a_phi, b_phi, c_phi);
     
         // Loop over observations
         for(int i = 0; i < N; i++) {
-            Type log_f = dgev(y(i, p), mu, sigma, xi);
+            Type log_f = gev_lpdf(y(i, p), mu, sigma, xi);
             
             // Handle invalid values
             if(!R_FINITE(asDouble(log_f))) {
